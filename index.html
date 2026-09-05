@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#111827"><title>我的单词本</title><link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="app">
+<header class="topbar"><div><p class="eyebrow">WORD MEMORY</p><h1>我的单词本</h1></div><button id="themeBtn" class="icon-btn" type="button">◐</button></header>
+<section class="stats"><div><strong id="totalCount">0</strong><span>全部单词</span></div><div><strong id="reviewCount">0</strong><span>今日复习</span></div><div><strong id="knownCount">0</strong><span>已掌握</span></div></section>
+<nav class="tabs"><button class="tab active" data-tab="study">开始背词</button><button class="tab" data-tab="words">我的词库</button><button class="tab" data-tab="add">添加单词</button></nav>
+<section id="study" class="panel active"><div id="emptyStudy" class="empty hidden"><div class="empty-icon">📚</div><h2>还没有待复习的单词</h2><p>先添加几个你想背的单词吧。</p><button class="primary" data-go="add">添加第一个单词</button></div><div id="studyCard" class="study-card"><div class="card-label">WORD</div><h2 id="studyWord">—</h2><button id="speakBtn" class="speak">🔊 发音</button><div id="answer" class="answer hidden"><div id="studyMeaning" class="meaning"></div><p id="studyExample"></p></div><button id="revealBtn" class="reveal">查看释义</button><div id="rating" class="rating hidden"><button id="againBtn" class="again">不认识</button><button id="knownBtn" class="known">认识了</button></div></div></section>
+<section id="words" class="panel"><div class="section-head"><div><h2>我的词库</h2><p>你添加的所有单词都会保存在本设备。</p></div><button class="secondary" data-go="add">＋ 添加</button></div><input id="searchInput" class="search" type="search" placeholder="搜索单词或释义…"><div id="wordList" class="word-list"></div></section>
+<section id="add" class="panel"><div class="section-head"><div><h2>添加单词</h2><p>输入你真正想记住的词。</p></div></div><form id="wordForm" class="form"><label>英文单词<input id="wordInput" required maxlength="80" placeholder="例如：serendipity"></label><label>中文释义<input id="meaningInput" required maxlength="200" placeholder="例如：意外发现美好事物的能力"></label><label>例句（可选）<textarea id="exampleInput" maxlength="300" placeholder="例如：I found this café by pure serendipity."></textarea></label><button class="primary" type="submit">保存单词</button></form><div class="data-actions"><button id="exportBtn" class="secondary" type="button">导出词库</button><label class="secondary file-btn">导入词库<input id="importInput" type="file" accept="application/json"></label></div></section>
+<footer>数据只保存在你的浏览器中 · 无需注册 · 支持手机和电脑</footer>
+</main><script src="app.js"></script>
+</body></html>
