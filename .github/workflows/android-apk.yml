@@ -19,61 +19,123 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
-          node-version: '20'
+          gradle-version: '8.10.2'
 
-      - name: Install Bubblewrap
-        run: npm install -g @bubblewrap/cli
-
-      - name: Create signing key
+      - name: Create Android project
+        shell: bash
         run: |
-          keytool -genkeypair -v \
-            -keystore android.keystore \
-            -alias wordmemory \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass wordmemory-build \
-            -keypass wordmemory-build \
-            -dname "CN=四级单词背诵, OU=WordMemory, O=Personal, L=Internet, ST=Internet, C=CN"
+          set -e
+          mkdir -p android-app/app/src/main/java/com/dengruibin/wordmemory
+          cat > android-app/settings.gradle <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
+          rootProject.name = 'WordMemory'
+          include ':app'
+          EOF
+          cat > android-app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+          cat > android-app/app/build.gradle <<'EOF'
+          plugins { id 'com.android.application' }
 
-      - name: Create Bubblewrap manifest
-        run: |
-          cat > twa-manifest.json <<'EOF'
-          {
-            "packageId": "com.dengruibin.wordmemory",
-            "host": "dengruibin-hub.github.io",
-            "name": "四级单词背诵",
-            "launcherName": "四级背词",
-            "display": "standalone",
-            "themeColor": "#0f172a",
-            "navigationColor": "#0f172a",
-            "backgroundColor": "#f5f7fb",
-            "startUrl": "/word-memory/",
-            "iconUrl": "https://dengruibin-hub.github.io/word-memory/icon.svg",
-            "webManifestUrl": "https://dengruibin-hub.github.io/word-memory/manifest.json",
-            "fallbackType": "customtabs",
-            "minSdkVersion": 23,
-            "appVersionName": "1.0.0",
-            "appVersionCode": 1,
-            "signingKey": {
-              "path": "./android.keystore",
-              "alias": "wordmemory"
-            }
+          android {
+              namespace 'com.dengruibin.wordmemory'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.dengruibin.wordmemory'
+                  minSdk 23
+                  targetSdk 35
+                  versionCode 1
+                  versionName '1.0.0'
+              }
+          }
+          EOF
+          cat > android-app/app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <application
+                  android:theme="@style/AppTheme"
+                  android:label="四级背词"
+                  android:usesCleartextTraffic="false"
+                  android:resizeableActivity="true">
+                  <activity
+                      android:name=".MainActivity"
+                      android:screenOrientation="portrait"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+          mkdir -p android-app/app/src/main/res/values
+          cat > android-app/app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+              <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:colorAccent">#0f172a</item>
+                  <item name="android:navigationBarColor">#f5f7fb</item>
+                  <item name="android:statusBarColor">#f5f7fb</item>
+                  <item name="android:windowLightStatusBar">true</item>
+              </style>
+          </resources>
+          EOF
+          cat > android-app/app/src/main/java/com/dengruibin/wordmemory/MainActivity.java <<'EOF'
+          package com.dengruibin.wordmemory;
+
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          public class MainActivity extends Activity {
+              private WebView webView;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  webView = new WebView(this);
+                  setContentView(webView);
+
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setDatabaseEnabled(true);
+                  settings.setAllowFileAccess(true);
+                  settings.setMediaPlaybackRequiresUserGesture(false);
+                  settings.setBuiltInZoomControls(false);
+                  settings.setDisplayZoomControls(false);
+
+                  webView.setWebViewClient(new WebViewClient());
+                  webView.setWebChromeClient(new WebChromeClient());
+                  webView.loadUrl("https://dengruibin-hub.github.io/word-memory/");
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (webView.canGoBack()) webView.goBack();
+                  else super.onBackPressed();
+              }
           }
           EOF
 
-      - name: Build signed APK
-        env:
-          BUBBLEWRAP_KEYSTORE_PASSWORD: wordmemory-build
-          BUBBLEWRAP_KEY_PASSWORD: wordmemory-build
-        run: bubblewrap build --manifest=./twa-manifest.json --skipPwaValidation
+      - name: Build debug APK
+        working-directory: android-app
+        run: gradle assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: word-memory-android-apk
-          path: app-release-signed.apk
+          path: android-app/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
