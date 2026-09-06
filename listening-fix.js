@@ -35,11 +35,8 @@
       if(url){playUrl(url,myToken,text);return;}
       immediateUsTts(text);return;
     }
-    // 先播放 en-US 浏览器语音，避免等待网络；明确的美式真人音频加载后缓存给下一次播放。
     immediateUsTts(text);
-    const url=await getUsAudio(text);
-    if(myToken!==token||!url)return;
-    // 不在本次播放中切换声音，避免出现延迟/重复播放；URL 留在缓存供下一次点击。
+    getUsAudio(text).catch(()=>{});
   }
   function playUrl(url,myToken,text){
     if(myToken!==token)return;
@@ -69,9 +66,14 @@
     if(ok){const idAtAnswer=String(correctId);setTimeout(()=>{if(word&&String(word.id)===idAtAnswer)newQuestion()},2000)}
   }
 
+  function activateListening(){
+    document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab==='listening'));
+    document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id==='listening'));
+    newQuestion();
+  }
   function bind(){
     const tab=document.querySelector('.tab[data-tab="listening"]');
-    if(tab)tab.addEventListener('click',e=>{e.stopImmediatePropagation();newQuestion()},{capture:true});
+    if(tab)tab.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();activateListening()},{capture:true});
     $('newListeningBtn')?.addEventListener('click',e=>{e.stopImmediatePropagation();newQuestion()},{capture:true});
     $('replayListeningBtn')?.addEventListener('click',e=>{e.stopImmediatePropagation();if(word)play(word.word)},{capture:true});
     if($('replayListeningBtn'))$('replayListeningBtn').textContent='🔊 听发音';
