@@ -6,14 +6,15 @@
   const esc=v=>String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const shuffle=a=>a.sort(()=>Math.random()-.5);
   let listenWord=null,spellWord=null;
+  let skipped=new Set();
   const audioCache=new Map();
 
   const tabs=document.querySelector('.tabs'),quizTab=tabs?.querySelector('[data-tab="quiz"]');
   if(tabs&&quizTab&&!tabs.querySelector('[data-tab="listening"]'))quizTab.insertAdjacentHTML('afterend','<button class="tab" data-tab="listening">听音训练</button><button class="tab" data-tab="spelling">拼写训练</button><button class="tab" data-tab="wrong">错词本</button><button class="tab" data-tab="progress">学习进度</button>');
   const footer=document.querySelector('footer');
   if(footer&&!$('listening'))footer.insertAdjacentHTML('beforebegin',`
-<section id="listening" class="panel"><div class="quiz-card"><div class="quiz-head"><div><span class="card-label">LISTENING</span><h2>听音选词</h2><p>优先使用美式真人词典音频。</p></div><button id="newListeningBtn" class="secondary" type="button">换一题</button></div><button id="replayListeningBtn" class="primary" type="button">🔊 再听一次</button><p id="listeningPrompt" class="quiz-result">准备开始</p><div id="listeningOptions" class="quiz-options"></div><div id="listeningResult" class="quiz-result hidden"></div></div></section>
-<section id="spelling" class="panel"><div class="quiz-card"><div class="quiz-head"><div><span class="card-label">SPELLING</span><h2>听音拼写</h2><p>优先使用美式真人词典音频。</p></div><button id="newSpellingBtn" class="secondary" type="button">换一题</button></div><button id="replaySpellingBtn" class="primary" type="button">🔊 再听一次</button><p id="spellingPrompt" class="quiz-result">准备开始</p><input id="spellingInput" class="search" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="输入你听到的英文单词…"><button id="checkSpellingBtn" class="reveal" type="button">检查拼写</button><div id="spellingResult" class="quiz-result hidden"></div></div></section>
+<section id="listening" class="panel"><div class="quiz-card"><div class="quiz-head"><div><span class="card-label">LISTENING</span><h2>听音选词</h2><p>播放与当前题目完全对应的美式发音。</p></div><button id="newListeningBtn" class="secondary" type="button">换一题</button></div><button id="replayListeningBtn" class="primary" type="button">🔊 再听一次</button><p id="listeningPrompt" class="quiz-result">准备开始</p><div id="listeningOptions" class="quiz-options"></div><div id="listeningResult" class="quiz-result hidden"></div></div></section>
+<section id="spelling" class="panel"><div class="quiz-card"><div class="quiz-head"><div><span class="card-label">SPELLING</span><h2>听音拼写</h2><p>播放与当前单词对应的美式发音。</p></div><button id="newSpellingBtn" class="secondary" type="button">换一题</button></div><button id="replaySpellingBtn" class="primary" type="button">🔊 再听一次</button><p id="spellingPrompt" class="quiz-result">准备开始</p><input id="spellingInput" class="search" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="输入你听到的英文单词…"><button id="checkSpellingBtn" class="reveal" type="button">检查拼写</button><div id="spellingResult" class="quiz-result hidden"></div></div></section>
 <section id="wrong" class="panel"><div class="quiz-card"><div class="quiz-head"><div><span class="card-label">WRONG WORDS</span><h2>错词本</h2><p>优先复习掌握度较低的单词。</p></div><button id="wrongStudyBtn" class="primary" type="button">开始复习</button></div><div id="wrongList" class="word-list"></div></div></section>
 <section id="progress" class="panel"><div class="quiz-card"><div class="quiz-head"><div><span class="card-label">PROGRESS</span><h2>Unit 学习进度</h2><p>掌握度达到 5 级的单词计入已掌握。</p></div></div><div id="unitProgress" class="progress-grid"></div></div></section>`);
 
@@ -27,37 +28,83 @@
     const promise=fetch('https://api.dictionaryapi.dev/api/v2/entries/en/'+encodeURIComponent(key)).then(r=>r.ok?r.json():null).then(entries=>{
       if(!Array.isArray(entries))return null;
       const audios=[];
-      entries.forEach(e=>(e.phonetics||[]).forEach(p=>{if(p.audio)audios.push(p.audio)}));
-      return audios.find(u=>/-(us|en-us)[.-]/i.test(u)||//us//i.test(u))||audios[0]||null;
+      entries.forEach(e=>(e.phonetics||[]).forEach(p=>{if(p.audio)audios.push({url:p.audio,source:e.word||key})}));
+      return audios.find(x=>/-us[.-]/i.test(x.url)||/-en-us[.-]/i.test(x.url))?.url||audios.find(x=>x.url)?.url||null;
     }).catch(()=>null);
-    audioCache.set(key,promise);
-    return promise;
+    audioCache.set(key,promise);return promise;
   }
   async function speak(word){
     if(!word)return;
     speechSynthesis?.cancel();
-    const url=await getUsAudio(word);
-    if(url){
-      const a=new Audio(url);a.preload='auto';a.play().catch(()=>fallbackSpeak(word));
-      return;
-    }
-    fallbackSpeak(word);
+    const target=String(word).trim();
+    const url=await getUsAudio(target);
+    if(url){const a=new Audio(url);a.preload='auto';a.play().catch(()=>fallbackSpeak(target));return;}
+    fallbackSpeak(target);
   }
   function fallbackSpeak(word){if(!('speechSynthesis'in window))return;const u=new SpeechSynthesisUtterance(word);u.lang='en-US';u.rate=.76;u.volume=1;const vs=speechSynthesis.getVoices();const v=vs.find(x=>/en-US/i.test(x.lang)&&/Google US English|Microsoft.*(Jenny|Aria|Guy|Andrew|Christopher)|Samantha|Alex/i.test(x.name))||vs.find(x=>/en-US/i.test(x.lang));if(v)u.voice=v;speechSynthesis.speak(u)}
 
-  function newListening(){const pool=load().filter(w=>w.word&&w.meaning);if(!pool.length)return;listenWord=pool[Math.floor(Math.random()*pool.length)];$('listeningPrompt').textContent='听发音后，选择你听到的英文单词';$('listeningResult').classList.add('hidden');$('listeningOptions').innerHTML=shuffle([listenWord,...pool.filter(w=>w.id!==listenWord.id).slice(0,6)]).slice(0,4).map(w=>`<button class="quiz-option" data-id="${esc(w.id)}" type="button">${esc(w.word)}</button>`).join('');document.querySelectorAll('#listeningOptions .quiz-option').forEach(b=>b.onclick=()=>answerListening(b.dataset.id));setTimeout(()=>speak(listenWord.word),150)}
-  function answerListening(id){const ok=id===listenWord?.id;document.querySelectorAll('#listeningOptions .quiz-option').forEach(b=>{b.disabled=true;if(b.dataset.id===listenWord.id)b.classList.add('correct');else if(b.dataset.id===id)b.classList.add('wrong')});$('listeningResult').classList.remove('hidden');$('listeningResult').textContent=ok?'✓ 听对了！':'✕ 正确答案：'+listenWord.word;setTimeout(newListening,900)}
-  function newSpelling(){const pool=load().filter(w=>w.word&&w.meaning);if(!pool.length)return;spellWord=pool[Math.floor(Math.random()*pool.length)];$('spellingPrompt').textContent='听发音后，输入你听到的英文单词';$('spellingInput').value='';$('spellingResult').classList.add('hidden');setTimeout(()=>speak(spellWord.word),150);$('spellingInput').focus()}
-  function checkSpelling(){if(!spellWord)return;const ans=$('spellingInput').value.trim().toLowerCase(),ok=ans===spellWord.word.toLowerCase();$('spellingResult').classList.remove('hidden');$('spellingResult').textContent=ok?'✓ 拼写正确！':'✕ 正确拼写：'+spellWord.word;if(ok)setTimeout(newSpelling,900);else speak(spellWord.word)}
+  function newListening(){
+    const pool=load().filter(w=>w.word&&w.meaning);
+    if(pool.length<2){$('listeningPrompt').textContent='词库至少需要 2 个单词';$('listeningOptions').innerHTML='';return;}
+    listenWord=pool[Math.floor(Math.random()*pool.length)];
+    const distractors=shuffle(pool.filter(w=>w.id!==listenWord.id&&w.word.toLowerCase()!==listenWord.word.toLowerCase())).slice(0,3);
+    const options=shuffle([listenWord,...distractors]);
+    $('listeningPrompt').textContent='听发音后，选择你听到的英文单词';$('listeningResult').classList.add('hidden');
+    $('listeningOptions').innerHTML=options.map(w=>`<button class="quiz-option" data-id="${esc(w.id)}" type="button">${esc(w.word)}</button>`).join('');
+    document.querySelectorAll('#listeningOptions .quiz-option').forEach(b=>b.onclick=()=>answerListening(b.dataset.id));
+    speak(listenWord.word);
+  }
+  function answerListening(id){
+    if(!listenWord)return;
+    const correctId=String(listenWord.id);const ok=String(id)===correctId;
+    document.querySelectorAll('#listeningOptions .quiz-option').forEach(b=>{b.disabled=true;if(String(b.dataset.id)===correctId)b.classList.add('correct');else if(String(b.dataset.id)===String(id))b.classList.add('wrong')});
+    $('listeningResult').classList.remove('hidden');$('listeningResult').textContent=ok?'✓ 听对了！':'✕ 正确答案：'+listenWord.word;
+  }
+
+  function newSpelling(){const pool=load().filter(w=>w.word&&w.meaning);if(!pool.length)return;spellWord=pool[Math.floor(Math.random()*pool.length)];$('spellingPrompt').textContent='听发音后，输入你听到的英文单词';$('spellingInput').value='';$('spellingResult').classList.add('hidden');speak(spellWord.word);setTimeout(()=>$('spellingInput')?.focus(),250)}
+  function checkSpelling(){if(!spellWord)return;const ans=$('spellingInput').value.trim().toLowerCase(),ok=ans===spellWord.word.toLowerCase();$('spellingResult').classList.remove('hidden');$('spellingResult').textContent=ok?'✓ 拼写正确！':'✕ 正确拼写：'+spellWord.word;if(!ok)speak(spellWord.word)}
   $('newListeningBtn')?.addEventListener('click',newListening);$('replayListeningBtn')?.addEventListener('click',()=>speak(listenWord?.word));$('newSpellingBtn')?.addEventListener('click',newSpelling);$('replaySpellingBtn')?.addEventListener('click',()=>speak(spellWord?.word));$('checkSpellingBtn')?.addEventListener('click',checkSpelling);$('spellingInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')checkSpelling()});
 
-  function enhanceLibrary(){const select=$('filterSelect');if(!select)return;if(!select.querySelector('[data-enhance]'))select.insertAdjacentHTML('beforeend','<option data-enhance value="source:读写">读写词库</option><option data-enhance value="source:听说">听说词库</option>');if(!select.dataset.enhanced){select.dataset.enhanced='1';select.addEventListener('change',()=>{const f=select.value;if(!f.startsWith('source:')&&!f.startsWith('unit:'))return;const data=load().filter(w=>f.startsWith('source:')?w.source===f.slice(7):w.unit===f.slice(5));$('wordList').innerHTML=data.length?data.map(w=>`<article class="word-item"><div class="word-main"><strong>${esc(w.word)}</strong><span>${esc(w.meaning)}${w.unit?' · '+esc(w.unit):''}</span></div></article>`).join(''):'<div class="empty"><p>没有符合条件的单词。</p></div>'})}const units=[...new Set(load().map(w=>w.unit).filter(Boolean))].sort((a,b)=>(parseInt(a.slice(5))||99)-(parseInt(b.slice(5))||99));if(!select.querySelector('[data-unit]')&&units.length)select.insertAdjacentHTML('beforeend',units.map(u=>`<option data-unit value="unit:${esc(u)}">只看 ${esc(u)}</option>`).join(''))}
+  function enhanceLibrary(){
+    const select=$('filterSelect');if(!select)return;
+    if(!select.querySelector('[data-enhance]'))select.insertAdjacentHTML('beforeend','<option data-enhance value="source:读写">读写词库</option><option data-enhance value="source:听说">听说词库</option>');
+    if(!select.dataset.enhanced){select.dataset.enhanced='1';select.addEventListener('change',()=>{const f=select.value;if(!f.startsWith('source:')&&!f.startsWith('unit:'))return;const data=load().filter(w=>f.startsWith('source:')?w.source===f.slice(7):w.unit===f.slice(5));$('wordList').innerHTML=data.length?data.map(w=>`<article class="word-item"><div class="word-main"><strong>${esc(w.word)}</strong><span>${esc(w.meaning)}${w.unit?' · '+esc(w.unit):''}</span></div></article>`).join(''):'<div class="empty"><p>没有符合条件的单词。</p></div>'})}
+    const units=[...new Set(load().map(w=>w.unit).filter(Boolean))].sort((a,b)=>(parseInt(a.replace(/\D/g,''))||99)-(parseInt(b.replace(/\D/g,''))||99));
+    if(!select.querySelector('[data-unit]')&&units.length)select.insertAdjacentHTML('beforeend',units.map(u=>`<option data-unit value="unit:${esc(u)}">只看 ${esc(u)}</option>`).join(''));
+  }
+
   function renderWrong(){const data=load().filter(w=>w.word&&w.meaning&&(Number(w.mastery||0)<=2||Number(w.wrongCount||0)>0)).sort((a,b)=>(a.mastery||0)-(b.mastery||0));$('wrongList').innerHTML=data.length?data.map(w=>`<article class="word-item"><div class="word-main"><strong>${esc(w.word)}</strong><span>${esc(w.meaning)}${w.unit?' · '+esc(w.unit):''}</span></div><button class="secondary wrong-speak" data-word="${esc(w.word)}" type="button">🔊</button></article>`).join(''):'<div class="empty"><p>太棒了！目前没有明显薄弱词。</p></div>';document.querySelectorAll('.wrong-speak').forEach(b=>b.onclick=()=>speak(b.dataset.word))}
-  function renderProgress(){const data=load().filter(w=>w.unit);const units=[...new Set(data.map(w=>w.unit))].sort((a,b)=>(parseInt(a.slice(5))||99)-(parseInt(b.slice(5))||99));$('unitProgress').innerHTML=units.length?units.map(u=>{const ws=data.filter(w=>w.unit===u),mastered=ws.filter(w=>(w.mastery||0)>=5).length,rate=Math.round(mastered/ws.length*100);return `<div class="unit-card"><div class="unit-title"><strong>${esc(u)}</strong><span>${rate}%</span></div><div class="progress-bar"><i style="width:${rate}%"></i></div><small>${mastered} / ${ws.length} 已掌握</small><button class="secondary unit-study" data-unit="${esc(u)}" type="button">只背 ${esc(u)}</button></div>`}).join(''):'<div class="empty"><p>导入教材词库后，这里会显示每个 Unit 的掌握率。</p></div>';document.querySelectorAll('.unit-study').forEach(b=>b.onclick=()=>startUnitStudy(b.dataset.unit))}
-  function startUnitStudy(unit){const data=load(),outside=data.filter(w=>w.unit!==unit);localStorage.setItem('word-memory-study-backup',JSON.stringify(outside.map(w=>({id:w.id,nextReview:w.nextReview}))));outside.forEach(w=>w.nextReview='2999-12-31T00:00:00.000Z');save(data);localStorage.setItem('word-memory-study-unit',unit);alert(`已切换到 ${unit} 专注学习。完成后可在“学习进度”里退出专注模式。`);location.reload()}
+  function renderProgress(){const data=load().filter(w=>w.unit);const units=[...new Set(data.map(w=>w.unit))].sort((a,b)=>(parseInt(a.replace(/\D/g,''))||99)-(parseInt(b.replace(/\D/g,''))||99));$('unitProgress').innerHTML=units.length?units.map(u=>{const ws=data.filter(w=>w.unit===u),mastered=ws.filter(w=>(w.mastery||0)>=5).length,rate=Math.round(mastered/ws.length*100);return `<div class="unit-card"><div class="unit-title"><strong>${esc(u)}</strong><span>${rate}%</span></div><div class="progress-bar"><i style="width:${rate}%"></i></div><small>${mastered} / ${ws.length} 已掌握</small><button class="secondary unit-study" data-unit="${esc(u)}" type="button">只背 ${esc(u)}</button></div>`}).join(''):'<div class="empty"><p>请重新导入教材词库，系统会按原文 Unit 标题重新建立分类。</p></div>';document.querySelectorAll('.unit-study').forEach(b=>b.onclick=()=>startUnitStudy(b.dataset.unit))}
+  function startUnitStudy(unit){const data=load(),outside=data.filter(w=>w.unit!==unit);localStorage.setItem('word-memory-study-backup',JSON.stringify(outside.map(w=>({id:w.id,nextReview:w.nextReview}))));outside.forEach(w=>w.nextReview='2999-12-31T00:00:00.000Z');save(data);localStorage.setItem('word-memory-study-unit',unit);location.reload()}
   function exitUnitStudy(){const backup=JSON.parse(localStorage.getItem('word-memory-study-backup')||'[]');if(!backup.length){localStorage.removeItem('word-memory-study-unit');return}const data=load();backup.forEach(b=>{const w=data.find(x=>x.id===b.id);if(w)w.nextReview=b.nextReview});save(data);localStorage.removeItem('word-memory-study-backup');localStorage.removeItem('word-memory-study-unit');location.reload()}
 
-  enhanceLibrary();
-  const studyUnit=localStorage.getItem('word-memory-study-unit');if(studyUnit){const studyPanel=$('study');if(studyPanel){const head=studyPanel.querySelector('.study-head')||studyPanel.querySelector('.quiz-head')||studyPanel.firstElementChild;const btn=document.createElement('button');btn.className='secondary';btn.type='button';btn.textContent=`专注：${studyUnit} · 退出`;btn.onclick=exitUnitStudy;head?.appendChild(btn)}}
-  document.getElementById('importInput')?.addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file||!file.name.toLowerCase().endsWith('.docx')||!window.mammoth)return;try{const source=/听说|听力|listening/i.test(file.name)?'听说':'读写';const html=(await mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()})).value;const doc=new DOMParser().parseFromString(html,'text/html');const ps=[...doc.querySelectorAll('p')].map(p=>p.textContent.replace(/\s+/g,' ').trim()).filter(Boolean);let unit='';const meta=[];for(let i=0;i<ps.length;i++){const um=ps[i].match(/^Unit\s+(\d+)\b/i);if(um)unit=`Unit ${um[1]}`;const m=ps[i].match(/^(.+?)\s*\/[^/]{1,100}\/\s*$/);const word=(m?m[1]:ps[i]).trim();if(!/^[A-Za-z][A-Za-z0-9' ._-]{0,79}$/.test(word)||word.split(/\s+/).length>8)continue;if(/^释义\s+/.test(ps[i+1]||''))meta.push({word:word.toLowerCase(),unit,source})}setTimeout(()=>{const data=load();let changed=false;meta.forEach(x=>{const w=data.find(y=>y.word.toLowerCase()===x.word);if(w){w.unit=x.unit;w.source=x.source;changed=true}});if(changed){save(data);enhanceLibrary()}},1200)}catch(err){console.warn('Unit/source enhancement failed',err)}});
+  function installSkip(){
+    const speakBtn=$('speakBtn');
+    if(!speakBtn||$('skipBtn'))return;
+    const btn=document.createElement('button');btn.id='skipBtn';btn.className='secondary skip-btn';btn.type='button';btn.textContent='跳过';
+    speakBtn.insertAdjacentElement('afterend',btn);
+    btn.addEventListener('click',()=>{if(!$('studyWord')?.textContent||$('studyWord').textContent==='—')return;const word=load().find(w=>w.word===$('studyWord').textContent);if(word)skipped.add(word.id);const data=load();let candidates=data.filter(w=>w.word&&w.nextReview&&w.nextReview<=new Date().toISOString().slice(0,10)&&!skipped.has(w.id));if(!candidates.length){skipped.clear();candidates=data.filter(w=>w.word&&w.nextReview&&w.nextReview<=new Date().toISOString().slice(0,10));}if(candidates.length){const next=candidates.sort((a,b)=>(a.mastery||0)-(b.mastery||0))[0];$('studyWord').textContent=next.word;$('studyMeaning').textContent=next.meaning;$('studyExample').textContent=next.example?`例句：${next.example}`:'暂无例句，可以在词库中补充。';$('answer').classList.add('hidden');$('rating').classList.add('hidden');$('revealBtn').classList.remove('hidden');$('cardProgress').textContent=`待复习 ${data.filter(w=>w.nextReview<=new Date().toISOString().slice(0,10)).length} 词 · 难度 ${Math.min(6,next.mastery+1)}/7`;}});
+  }
+
+  enhanceLibrary();installSkip();
+  const studyUnit=localStorage.getItem('word-memory-study-unit');if(studyUnit){const studyPanel=$('study');if(studyPanel){const btn=document.createElement('button');btn.className='secondary';btn.type='button';btn.textContent=`专注：${studyUnit} · 退出`;btn.onclick=exitUnitStudy;studyPanel.querySelector('.card-top')?.appendChild(btn)}}
+
+  document.getElementById('importInput')?.addEventListener('change',async e=>{
+    const file=e.target.files?.[0];if(!file||!file.name.toLowerCase().endsWith('.docx')||!window.mammoth)return;
+    try{
+      const source=/听说|听力|listening/i.test(file.name)?'听说':'读写';
+      const html=(await mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()})).value;
+      const doc=new DOMParser().parseFromString(html,'text/html');
+      const ps=[...doc.querySelectorAll('p')].map(p=>p.textContent.replace(/\s+/g,' ').trim()).filter(Boolean);
+      let unit='';const meta=[];
+      for(let i=0;i<ps.length;i++){
+        const um=ps[i].match(/^Unit\s+(\d+)\b/i);if(um){unit=`Unit ${um[1]}`;continue;}
+        if(!unit)continue;
+        let word='';const m=ps[i].match(/^(.+?)\s*\/[^/]{1,100}\/\s*$/);if(m)word=m[1].trim();else if(/^[A-Za-z][A-Za-z0-9' ._-]{0,79}$/.test(ps[i])&&ps[i].split(/\s+/).length<=8)word=ps[i];
+        if(!word||/^unit\s+\d+/i.test(word)||!/^释义\s*/.test(ps[i+1]||''))continue;
+        meta.push({word:word.toLowerCase(),unit,source});
+      }
+      setTimeout(()=>{const data=load();let changed=0;meta.forEach(x=>{const w=data.find(y=>y.word.toLowerCase()===x.word);if(w){w.unit=x.unit;w.source=x.source;changed++}});if(changed){save(data);enhanceLibrary();alert(`已完成 ${source} 词库 Unit 分类：${changed} 个单词。`)}},800);
+    }catch(err){console.warn('Unit/source enhancement failed',err)}
+  });
 })();
