@@ -1,16 +1,108 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#111827"><title>我的单词本</title><link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>WordFlow · 智能背单词</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<main class="app">
-<header class="topbar"><div><p class="eyebrow">WORD MEMORY</p><h1>我的单词本</h1></div><button id="themeBtn" class="icon-btn" type="button">◐</button></header>
-<section class="stats"><div><strong id="totalCount">0</strong><span>全部单词</span></div><div><strong id="reviewCount">0</strong><span>今日复习</span></div><div><strong id="knownCount">0</strong><span>已掌握</span></div></section>
-<nav class="tabs"><button class="tab active" data-tab="study">开始背词</button><button class="tab" data-tab="words">我的词库</button><button class="tab" data-tab="add">添加单词</button></nav>
-<section id="study" class="panel active"><div id="emptyStudy" class="empty hidden"><div class="empty-icon">📚</div><h2>还没有待复习的单词</h2><p>先添加几个你想背的单词吧。</p><button class="primary" data-go="add">添加第一个单词</button></div><div id="studyCard" class="study-card"><div class="card-label">WORD</div><h2 id="studyWord">—</h2><button id="speakBtn" class="speak">🔊 发音</button><div id="answer" class="answer hidden"><div id="studyMeaning" class="meaning"></div><p id="studyExample"></p></div><button id="revealBtn" class="reveal">查看释义</button><div id="rating" class="rating hidden"><button id="againBtn" class="again">不认识</button><button id="knownBtn" class="known">认识了</button></div></div></section>
-<section id="words" class="panel"><div class="section-head"><div><h2>我的词库</h2><p>你添加的所有单词都会保存在本设备。</p></div><button class="secondary" data-go="add">＋ 添加</button></div><input id="searchInput" class="search" type="search" placeholder="搜索单词或释义…"><div id="wordList" class="word-list"></div></section>
-<section id="add" class="panel"><div class="section-head"><div><h2>添加单词</h2><p>输入你真正想记住的词。</p></div></div><form id="wordForm" class="form"><label>英文单词<input id="wordInput" required maxlength="80" placeholder="例如：serendipity"></label><label>中文释义<input id="meaningInput" required maxlength="200" placeholder="例如：意外发现美好事物的能力"></label><label>例句（可选）<textarea id="exampleInput" maxlength="300" placeholder="例如：I found this café by pure serendipity."></textarea></label><button class="primary" type="submit">保存单词</button></form><div class="data-actions"><button id="exportBtn" class="secondary" type="button">导出词库</button><label class="secondary file-btn">导入词库<input id="importInput" type="file" accept="application/json"></label></div></section>
-<footer>数据只保存在你的浏览器中 · 无需注册 · 支持手机和电脑</footer>
-</main><script src="app.js"></script>
-</body></html>
+<main class="app-shell">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">W</div>
+      <div><p class="eyebrow">WORD FLOW</p><h1>智能背单词</h1></div>
+    </div>
+    <button id="themeBtn" class="icon-btn" type="button" aria-label="切换主题">◐</button>
+  </header>
+
+  <section class="hero">
+    <div>
+      <p class="hero-kicker">今天也来记住几个词</p>
+      <h2>把“见过”变成“真正记住”。</h2>
+      <p class="hero-sub">按照遗忘规律安排复习，优先处理你最容易忘的单词。</p>
+    </div>
+    <div class="daily-goal">
+      <div class="goal-ring"><span id="goalPercent">0%</span></div>
+      <div><strong id="goalText">0 / 10</strong><span>今日目标</span></div>
+    </div>
+  </section>
+
+  <section class="stats">
+    <div class="stat-card"><span class="stat-icon">📚</span><strong id="totalCount">0</strong><span>词库单词</span></div>
+    <div class="stat-card"><span class="stat-icon">🔥</span><strong id="streakCount">0</strong><span>连续学习天数</span></div>
+    <div class="stat-card"><span class="stat-icon">🎯</span><strong id="reviewCount">0</strong><span>今日待复习</span></div>
+    <div class="stat-card"><span class="stat-icon">⭐</span><strong id="knownCount">0</strong><span>已经掌握</span></div>
+  </section>
+
+  <nav class="tabs" aria-label="主要功能">
+    <button class="tab active" data-tab="study">开始背词</button>
+    <button class="tab" data-tab="quiz">快速测验</button>
+    <button class="tab" data-tab="words">我的词库</button>
+    <button class="tab" data-tab="add">添加单词</button>
+  </nav>
+
+  <section id="study" class="panel active">
+    <div id="emptyStudy" class="empty hidden">
+      <div class="empty-icon">🎉</div><h2>今天没有待复习单词</h2>
+      <p>太棒了！可以继续添加新单词，或者挑战快速测验。</p>
+      <button class="primary" data-go="add">添加新单词</button>
+    </div>
+
+    <div id="studyCard" class="study-card">
+      <div class="card-top"><span class="card-label">FLASHCARD</span><span id="cardProgress" class="card-progress">准备开始</span></div>
+      <div class="word-stage">
+        <div class="word-type">ENGLISH</div>
+        <h2 id="studyWord">—</h2>
+        <button id="speakBtn" class="speak" type="button">🔊 听发音</button>
+      </div>
+      <div id="answer" class="answer hidden">
+        <div id="studyMeaning" class="meaning"></div>
+        <p id="studyExample"></p>
+      </div>
+      <button id="revealBtn" class="reveal" type="button">查看释义</button>
+      <div id="rating" class="rating hidden">
+        <button id="againBtn" class="rating-btn again" type="button"><b>不认识</b><small>马上再来</small></button>
+        <button id="hardBtn" class="rating-btn hard" type="button"><b>有点模糊</b><small>2 天后</small></button>
+        <button id="knownBtn" class="rating-btn known" type="button"><b>认识了</b><small>安排下次复习</small></button>
+        <button id="easyBtn" class="rating-btn easy" type="button"><b>很简单</b><small>延长间隔</small></button>
+      </div>
+      <div class="shortcut-hint">快捷键：<kbd>Space</kbd> 查看释义 · <kbd>1</kbd> 不认识 · <kbd>2</kbd> 模糊 · <kbd>3</kbd> 认识 · <kbd>4</kbd> 简单</div>
+    </div>
+  </section>
+
+  <section id="quiz" class="panel">
+    <div class="quiz-card">
+      <div class="quiz-head"><div><span class="card-label">QUICK TEST</span><h2>四选一</h2><p>不用看答案，凭记忆选择中文释义。</p></div><button id="newQuizBtn" class="secondary" type="button">换一题</button></div>
+      <div id="quizContent">
+        <div class="quiz-word" id="quizWord">—</div>
+        <div id="quizOptions" class="quiz-options"></div>
+        <div id="quizResult" class="quiz-result hidden"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="words" class="panel">
+    <div class="section-head"><div><span class="card-label">LIBRARY</span><h2>我的词库</h2><p>所有单词都保存在你的浏览器里，不需要注册。</p></div><button class="secondary" data-go="add" type="button">＋ 添加</button></div>
+    <div class="library-tools"><input id="searchInput" class="search" type="search" placeholder="搜索单词或释义…"><select id="filterSelect" class="filter"><option value="all">全部</option><option value="due">待复习</option><option value="mastered">已掌握</option></select></div>
+    <div id="wordList" class="word-list"></div>
+  </section>
+
+  <section id="add" class="panel">
+    <div class="section-head"><div><span class="card-label">BUILD YOUR DECK</span><h2>添加单词</h2><p>建议加入你最近遇到、真正想记住的词。</p></div></div>
+    <form id="wordForm" class="form">
+      <label>英文单词<input id="wordInput" required maxlength="80" placeholder="例如：serendipity" autocomplete="off"></label>
+      <label>中文释义<input id="meaningInput" required maxlength="200" placeholder="例如：意外发现美好事物的能力"></label>
+      <label>例句（可选）<textarea id="exampleInput" maxlength="300" placeholder="例如：I found this café by pure serendipity."></textarea></label>
+      <button class="primary" type="submit">保存并开始复习</button>
+    </form>
+    <div class="data-actions"><button id="exportBtn" class="secondary" type="button">↓ 导出词库</button><label class="secondary file-btn">↑ 导入词库<input id="importInput" type="file" accept="application/json"></label></div>
+    <div class="tip-box">💡 <b>小技巧：</b>每天新增 5–15 个词，再让系统安排复习，比一次塞进几百个词更容易长期坚持。</div>
+  </section>
+
+  <footer>WordFlow · 本地存储 · 无需账号 · 手机电脑均可使用</footer>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
