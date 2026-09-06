@@ -1,0 +1,74 @@
+(() => {
+  const KEY = 'word-memory-v2';
+  const $ = id => document.getElementById(id);
+  const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; } };
+  const save = data => localStorage.setItem(KEY, JSON.stringify(data));
+  const esc = v => String(v).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  const shuffle = a => a.sort(() => Math.random() - .5);
+  let listenWord = null, spellWord = null;
+
+  const tabs = document.querySelector('.tabs');
+  const quizTab = tabs?.querySelector('[data-tab="quiz"]');
+  if (tabs && quizTab && !tabs.querySelector('[data-tab="listening"]')) {
+    quizTab.insertAdjacentHTML('afterend', '<button class="tab" data-tab="listening">听音训练</button><button class="tab" data-tab="spelling">拼写训练</button>');
+  }
+
+  const footer = document.querySelector('footer');
+  if (footer && !$('listening')) footer.insertAdjacentHTML('beforebegin', `
+    <section id="listening" class="panel">
+      <div class="quiz-card">
+        <div class="quiz-head"><div><span class="card-label">LISTENING</span><h2>听音选词</h2><p>先听清美式发音，再从选项中选出你听到的英文。</p></div><button id="newListeningBtn" class="secondary" type="button">换一题</button></div>
+        <button id="replayListeningBtn" class="primary" type="button">🔊 再听一次</button>
+        <p id="listeningPrompt" class="quiz-result">准备开始</p><div id="listeningOptions" class="quiz-options"></div><div id="listeningResult" class="quiz-result hidden"></div>
+      </div>
+    </section>
+    <section id="spelling" class="panel">
+      <div class="quiz-card">
+        <div class="quiz-head"><div><span class="card-label">SPELLING</span><h2>听音拼写</h2><p>听美式发音，自己输入英文单词，训练真正的听写能力。</p></div><button id="newSpellingBtn" class="secondary" type="button">换一题</button></div>
+        <button id="replaySpellingBtn" class="primary" type="button">🔊 再听一次</button>
+        <p id="spellingPrompt" class="quiz-result">准备开始</p><input id="spellingInput" class="search" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="输入你听到的英文单词…"><button id="checkSpellingBtn" class="reveal" type="button">检查拼写</button><div id="spellingResult" class="quiz-result hidden"></div>
+      </div>
+    </section>`);
+
+  function show(name) {
+    document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+    document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === name));
+    if (name === 'listening') newListening();
+    if (name === 'spelling') newSpelling();
+    if (name === 'words') enhanceLibrary();
+  }
+  tabs?.querySelectorAll('.tab[data-tab="listening"], .tab[data-tab="spelling"]').forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
+
+  function speak(word) {
+    if (!word || !('speechSynthesis' in window)) return;
+    speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(word); u.lang='en-US'; u.rate=.76; u.volume=1;
+    const vs = speechSynthesis.getVoices(); const v = vs.find(x => /en-US/i.test(x.lang) && /Google US English|Microsoft.*(Jenny|Aria|Guy|Andrew|Christopher)|Samantha|Alex/i.test(x.name)) || vs.find(x => /en-US/i.test(x.lang)); if (v) u.voice=v;
+    speechSynthesis.speak(u);
+  }
+  function newListening() {
+    const pool=load().filter(w=>w.word&&w.meaning); if(!pool.length)return;
+    listenWord=pool[Math.floor(Math.random()*pool.length)]; $('listeningPrompt').textContent='听发音后，选择你听到的英文单词'; $('listeningResult').classList.add('hidden');
+    $('listeningOptions').innerHTML=shuffle([listenWord,...pool.filter(w=>w.id!==listenWord.id).slice(0,6)]).slice(0,4).map(w=>`<button class="quiz-option" data-id="${esc(w.id)}" type="button">${esc(w.word)}</button>`).join('');
+    document.querySelectorAll('#listeningOptions .quiz-option').forEach(b=>b.onclick=()=>answerListening(b.dataset.id)); setTimeout(()=>speak(listenWord.word),150);
+  }
+  function answerListening(id){ const ok=id===listenWord?.id; document.querySelectorAll('#listeningOptions .quiz-option').forEach(b=>{b.disabled=true;if(b.dataset.id===listenWord.id)b.classList.add('correct');else if(b.dataset.id===id)b.classList.add('wrong')});$('listeningResult').classList.remove('hidden');$('listeningResult').textContent=ok?'✓ 听对了！':'✕ 正确答案：'+listenWord.word;setTimeout(newListening,900); }
+  function newSpelling(){const pool=load().filter(w=>w.word&&w.meaning);if(!pool.length)return;spellWord=pool[Math.floor(Math.random()*pool.length)];$('spellingPrompt').textContent='听发音后，输入你听到的英文单词';$('spellingInput').value='';$('spellingResult').classList.add('hidden');setTimeout(()=>speak(spellWord.word),150);$('spellingInput').focus()}
+  function checkSpelling(){if(!spellWord)return;const ans=$('spellingInput').value.trim().toLowerCase(),ok=ans===spellWord.word.toLowerCase();$('spellingResult').classList.remove('hidden');$('spellingResult').textContent=ok?'✓ 拼写正确！':'✕ 正确拼写：'+spellWord.word;if(ok)setTimeout(newSpelling,900);else speak(spellWord.word)}
+  $('newListeningBtn')?.addEventListener('click',newListening); $('replayListeningBtn')?.addEventListener('click',()=>speak(listenWord?.word)); $('newSpellingBtn')?.addEventListener('click',newSpelling); $('replaySpellingBtn')?.addEventListener('click',()=>speak(spellWord?.word)); $('checkSpellingBtn')?.addEventListener('click',checkSpelling); $('spellingInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')checkSpelling()});
+
+  function enhanceLibrary(){
+    const select=$('filterSelect'); if(!select||select.querySelector('[data-enhance]'))return;
+    select.insertAdjacentHTML('beforeend','<option data-enhance value="source:读写">读写词库</option><option data-enhance value="source:听说">听说词库</option>');
+    select.addEventListener('change',()=>{const f=select.value;if(!f.startsWith('source:'))return;const source=f.slice(7);const data=load().filter(w=>w.source===source);$('wordList').innerHTML=data.length?data.map(w=>`<article class="word-item"><div class="word-main"><strong>${esc(w.word)}</strong><span>${esc(w.meaning)}${w.unit?' · '+esc(w.unit):''}</span></div></article>`).join(''):'<div class="empty"><p>这个词库还没有单词。</p></div>' : ''});
+  }
+  enhanceLibrary();
+
+  document.getElementById('importInput')?.addEventListener('change', async e => {
+    const file=e.target.files?.[0]; if(!file||!file.name.toLowerCase().endsWith('.docx')||!window.mammoth)return;
+    try{
+      const source=/听说|听力|listening/i.test(file.name)?'听说':'读写'; const html=(await mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()})).value; const doc=new DOMParser().parseFromString(html,'text/html'); const ps=[...doc.querySelectorAll('p')].map(p=>p.textContent.replace(/\s+/g,' ').trim()).filter(Boolean); let unit=''; const meta=[];
+      for(let i=0;i<ps.length;i++){const um=ps[i].match(/^Unit\s+(\d+)\b/i);if(um)unit=`Unit ${um[1]}`;const m=ps[i].match(/^(.+?)\s*\/[^/]{1,100}\/\s*$/);const word=(m?m[1]:ps[i]).trim();if(!/^[A-Za-z][A-Za-z0-9' ._-]{0,79}$/.test(word)||word.split(/\s+/).length>8)continue;if(/^释义\s+/.test(ps[i+1]||''))meta.push({word:word.toLowerCase(),unit,source});}
+      setTimeout(()=>{const data=load();let changed=false;meta.forEach(x=>{const w=data.find(y=>y.word.toLowerCase()===x.word);if(w){w.unit=x.unit;w.source=x.source;changed=true}});if(changed){save(data);enhanceLibrary()}},1200);
+    }catch(err){console.warn('Unit/source enhancement failed',err)}
+  });
+})();
