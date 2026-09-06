@@ -1,0 +1,79 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Bubblewrap
+        run: npm install -g @bubblewrap/cli
+
+      - name: Create signing key
+        run: |
+          keytool -genkeypair -v \
+            -keystore android.keystore \
+            -alias wordmemory \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass wordmemory-build \
+            -keypass wordmemory-build \
+            -dname "CN=四级单词背诵, OU=WordMemory, O=Personal, L=Internet, ST=Internet, C=CN"
+
+      - name: Create Bubblewrap manifest
+        run: |
+          cat > twa-manifest.json <<'EOF'
+          {
+            "packageId": "com.dengruibin.wordmemory",
+            "host": "dengruibin-hub.github.io",
+            "name": "四级单词背诵",
+            "launcherName": "四级背词",
+            "display": "standalone",
+            "themeColor": "#0f172a",
+            "navigationColor": "#0f172a",
+            "backgroundColor": "#f5f7fb",
+            "startUrl": "/word-memory/",
+            "iconUrl": "https://dengruibin-hub.github.io/word-memory/icon.svg",
+            "webManifestUrl": "https://dengruibin-hub.github.io/word-memory/manifest.json",
+            "fallbackType": "customtabs",
+            "minSdkVersion": 23,
+            "appVersionName": "1.0.0",
+            "appVersionCode": 1,
+            "signingKey": {
+              "path": "./android.keystore",
+              "alias": "wordmemory"
+            }
+          }
+          EOF
+
+      - name: Build signed APK
+        env:
+          BUBBLEWRAP_KEYSTORE_PASSWORD: wordmemory-build
+          BUBBLEWRAP_KEY_PASSWORD: wordmemory-build
+        run: bubblewrap build --manifest=./twa-manifest.json --skipPwaValidation
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: word-memory-android-apk
+          path: app-release-signed.apk
+          if-no-files-found: error
