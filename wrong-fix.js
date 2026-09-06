@@ -29,9 +29,7 @@
         <article class="word-item wrong-item">
           ${selecting ? `<label class="wrong-check"><input class="wrong-select" type="checkbox" data-id="${esc(w.id)}" ${selected.has(String(w.id)) ? 'checked' : ''}></label>` : ''}
           <div class="word-main"><strong>${esc(w.word)}</strong><span>${esc(w.meaning)}${w.unit ? ' · ' + esc(w.unit) : ''} · 掌握度 ${Number(w.mastery || 0)}/6</span></div>
-          <div class="word-actions">
-            <button class="secondary wrong-delete" data-id="${esc(w.id)}" type="button">删除</button>
-          </div>
+          <div class="word-actions"><button class="secondary wrong-delete" data-id="${esc(w.id)}" type="button">删除</button></div>
         </article>`).join('')}`;
 
     box.querySelectorAll('.wrong-select').forEach(cb => cb.addEventListener('change', () => {
@@ -40,8 +38,7 @@
       renderWrongChooser();
     }));
     $('wrongSelectAll')?.addEventListener('change', e => {
-      if (e.target.checked) data.forEach(w => selected.add(String(w.id)));
-      else selected.clear();
+      if (e.target.checked) data.forEach(w => selected.add(String(w.id))); else selected.clear();
       renderWrongChooser();
     });
     $('wrongCancelSelect')?.addEventListener('click', () => { selecting = false; selected.clear(); renderWrongChooser(); updateButton(); });
@@ -73,23 +70,17 @@
 
   function startSelectedStudy() {
     const ids = [...selected];
-    if (!ids.length) {
-      alert('请先勾选至少 1 个单词。');
-      return;
-    }
+    if (!ids.length) { alert('请先勾选至少 1 个单词。'); return; }
     const data = load();
     const selectedSet = new Set(ids);
     const target = data.filter(w => selectedSet.has(String(w.id)) && w.word);
     if (!target.length) return;
 
-    // Back up the original schedule of every word. Non-selected words are temporarily
-    // moved out of today's queue; ratings on selected words are kept after review.
+    // Back up the complete schedule. Only selected words remain in the review queue.
     const backup = data.map(w => ({ id: w.id, nextReview: w.nextReview }));
     localStorage.setItem(BACKUP_KEY, JSON.stringify(backup));
-    data.forEach(w => {
-      if (!selectedSet.has(String(w.id))) w.nextReview = '2999-12-31';
-      else w.nextReview = new Date().toISOString().slice(0,10);
-    });
+    localStorage.setItem(MODE_KEY + '-ids', JSON.stringify(ids));
+    data.forEach(w => { w.nextReview = selectedSet.has(String(w.id)) ? new Date().toISOString().slice(0,10) : '2999-12-31'; });
     save(data);
     localStorage.setItem(MODE_KEY, '1');
     location.reload();
@@ -97,18 +88,19 @@
 
   function finishWrongStudy() {
     let backup = [];
+    let selectedIds = [];
     try { backup = JSON.parse(localStorage.getItem(BACKUP_KEY) || '[]'); } catch {}
+    try { selectedIds = JSON.parse(localStorage.getItem(MODE_KEY + '-ids') || '[]').map(String); } catch {}
     if (!backup.length) {
       localStorage.removeItem(MODE_KEY);
+      localStorage.removeItem(MODE_KEY + '-ids');
       return;
     }
+    const selectedSet = new Set(selectedIds);
     const data = load();
-    const selectedIds = new Set(backup.map(x => String(x.id)));
-    // Restore only words that were not part of this review session. Selected words keep
-    // their new review dates/mastery, so the review really counts.
-    const currentSelected = new Set(JSON.parse(localStorage.getItem(MODE_KEY + '-ids') || '[]').map(String));
+    // Restore non-selected words only. Selected words keep their new mastery/review dates.
     backup.forEach(b => {
-      if (currentSelected.has(String(b.id))) return;
+      if (selectedSet.has(String(b.id))) return;
       const w = data.find(x => String(x.id) === String(b.id));
       if (w) w.nextReview = b.nextReview;
     });
@@ -123,10 +115,7 @@
     const btn = $('wrongStudyBtn');
     if (!btn || btn.dataset.wrongFixBound) return;
     btn.dataset.wrongFixBound = '1';
-    btn.addEventListener('click', () => {
-      if (!selecting) beginSelection();
-      else startSelectedStudy();
-    });
+    btn.addEventListener('click', () => { if (!selecting) beginSelection(); else startSelectedStudy(); });
 
     const wrongTab = document.querySelector('.tab[data-tab="wrong"]');
     wrongTab?.addEventListener('click', () => setTimeout(() => {
@@ -137,7 +126,6 @@
     }, 80));
   }
 
-  // If we are in a selected-word review session, add a clear exit button to the study card.
   function installSessionButton() {
     if (localStorage.getItem(MODE_KEY) !== '1') return;
     const panel = $('study');
@@ -150,16 +138,6 @@
     btn.textContent = '结束错词复习';
     btn.onclick = finishWrongStudy;
     top.appendChild(btn);
-  }
-
-  // Patch the IDs into storage so finishWrongStudy knows which words were selected.
-  if (localStorage.getItem(MODE_KEY) === '1' && !localStorage.getItem(MODE_KEY + '-ids')) {
-    try {
-      const backup = JSON.parse(localStorage.getItem(BACKUP_KEY) || '[]');
-      const current = new Set(load().filter(w => w.nextReview === new Date().toISOString().slice(0,10)).map(w => String(w.id)));
-      const original = new Set(backup.map(x => String(x.id)));
-      localStorage.setItem(MODE_KEY + '-ids', JSON.stringify([...current].filter(id => original.has(id))));
-    } catch {}
   }
 
   bind();
