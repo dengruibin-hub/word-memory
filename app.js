@@ -1,27 +1,82 @@
-const KEY = 'word-memory-v1';
+const KEY = 'word-memory-v2';
+const OLD_KEY = 'word-memory-v1';
 const THEME_KEY = 'word-memory-theme';
+const GOAL = 10;
+const INTERVALS = [1, 2, 4, 7, 14, 30, 60];
 
 let words = loadWords();
 let current = null;
+let quizCurrent = null;
 
 const $ = (id) => document.getElementById(id);
 const today = () => new Date().toISOString().slice(0, 10);
 
 function loadWords() {
-  try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; }
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY));
+    if (Array.isArray(saved)) return saved.map(normalizeWord);
+    const old = JSON.parse(localStorage.getItem(OLD_KEY));
+    if (Array.isArray(old)) {
+      const migrated = old.map(normalizeWord);
+      localStorage.setItem(KEY, JSON.stringify(migrated));
+      return migrated;
+    }
+  } catch {}
+  return [];
 }
-function save() { localStorage.setItem(KEY, JSON.stringify(words)); updateStats(); renderList(); chooseCard(); }
+
+function normalizeWord(w) {
+  return {
+    id: w.id || String(Date.now() + Math.random()),
+    word: String(w.word || '').trim(),
+    meaning: String(w.meaning || '').trim(),
+    example: String(w.example || '').trim(),
+    mastery: Math.max(0, Math.min(6, Number(w.mastery || 0))),
+    nextReview: w.nextReview || today(),
+    createdAt: Number(w.createdAt || Date.now()),
+    reviewHistory: Array.isArray(w.reviewHistory) ? w.reviewHistory : []
+  };
+}
+
+function save() {
+  localStorage.setItem(KEY, JSON.stringify(words));
+  updateStats();
+  renderList();
+  chooseCard();
+}
+
 function due(w) { return !w.nextReview || w.nextReview <= today(); }
+function reviewsToday() { return words.reduce((sum, w) => sum + w.reviewHistory.filter(d => d === today()).length, 0); }
+function streak() {
+  const dates = new Set(words.flatMap(w => w.reviewHistory));
+  let cursor = new Date();
+  if (!dates.has(today())) cursor.setDate(cursor.getDate() - 1);
+  let count = 0;
+  while (dates.has(cursor.toISOString().slice(0, 10))) {
+    count++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return count;
+}
+
 function updateStats() {
+  const done = reviewsToday();
+  const percent = Math.min(100, Math.round(done / GOAL * 100));
   $('totalCount').textContent = words.length;
   $('reviewCount').textContent = words.filter(due).length;
-  $('knownCount').textContent = words.filter(w => w.mastery >= 4).length;
+  $('knownCount').textContent = words.filter(w => w.mastery >= 5).length;
+  $('streakCount').textContent = streak();
+  $('goalText').textContent = `${Math.min(done, GOAL)} / ${GOAL}`;
+  $('goalPercent').textContent = `${percent}%`;
+  document.querySelector('.goal-ring')?.style.setProperty('--goal', `${percent * 3.6}deg`);
 }
+
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === name));
   if (name === 'study') chooseCard();
   if (name === 'words') renderList();
+  if (name === 'quiz') newQuiz();
 }
 
 document.querySelectorAll('.tab').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
@@ -35,10 +90,12 @@ function chooseCard() {
   if (!current) return;
   $('studyWord').textContent = current.word;
   $('studyMeaning').textContent = current.meaning;
-  $('studyExample').textContent = current.example ? `例句：${current.example}` : '';
+  $('studyExample').textContent = current.example ? `例句：${current.example}` : '暂无例句，可以在词库中补充。';
   $('answer').classList.add('hidden');
   $('rating').classList.add('hidden');
   $('revealBtn').classList.remove('hidden');
+  const dueTotal = words.filter(due).length;
+  $('cardProgress').textContent = `待复习 ${dueTotal} 词 · 难度 ${Math.min(6, current.mastery + 1)}/7`;
 }
 
 $('revealBtn').addEventListener('click', () => {
@@ -46,27 +103,39 @@ $('revealBtn').addEventListener('click', () => {
   $('rating').classList.remove('hidden');
   $('revealBtn').classList.add('hidden');
 });
-$('speakBtn').addEventListener('click', () => {
-  if (!current || !('speechSynthesis' in window)) return;
-  speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(current.word);
-  utterance.lang = 'en-US';
-  utterance.rate = .85;
-  speechSynthesis.speak(utterance);
-});
+$('speakBtn').addEventListener('click', () => speak(current?.word));
 
-function review(known) {
+function speak(word) {
+  if (!word || !('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(word);
+  utterance.lang = 'en-US';
+  utterance.rate = .82;
+  speechSynthesis.speak(utterance);
+}
+
+function review(kind) {
   if (!current) return;
-  const levels = [1, 3, 7, 14, 30];
-  current.mastery = known ? Math.min(4, (current.mastery || 0) + 1) : Math.max(0, (current.mastery || 0) - 1);
-  const days = known ? levels[current.mastery] || 30 : 1;
+  const oldMastery = current.mastery || 0;
+  const changes = {
+    again: { mastery: Math.max(0, oldMastery - 1), days: 0 },
+    hard: { mastery: Math.max(1, oldMastery), days: 2 },
+    known: { mastery: Math.min(6, oldMastery + 1), days: INTERVALS[Math.min(6, oldMastery + 1)] },
+    easy: { mastery: Math.min(6, oldMastery + 2), days: [2, 4, 7, 14, 30, 60, 90][Math.min(6, oldMastery + 2)] }
+  };
+  const change = changes[kind];
+  current.mastery = change.mastery;
+  current.reviewHistory.push(today());
   const next = new Date();
-  next.setDate(next.getDate() + days);
+  next.setDate(next.getDate() + change.days);
   current.nextReview = next.toISOString().slice(0, 10);
   save();
 }
-$('againBtn').addEventListener('click', () => review(false));
-$('knownBtn').addEventListener('click', () => review(true));
+
+$('againBtn').addEventListener('click', () => review('again'));
+$('hardBtn').addEventListener('click', () => review('hard'));
+$('knownBtn').addEventListener('click', () => review('known'));
+$('easyBtn').addEventListener('click', () => review('easy'));
 
 $('wordForm').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -80,7 +149,7 @@ $('wordForm').addEventListener('submit', (e) => {
     duplicate.example = example;
     duplicate.nextReview = today();
   } else {
-    words.push({ id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()), word, meaning, example, mastery: 0, nextReview: today(), createdAt: Date.now() });
+    words.push({ id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()), word, meaning, example, mastery: 0, nextReview: today(), createdAt: Date.now(), reviewHistory: [] });
   }
   save();
   e.target.reset();
@@ -89,36 +158,77 @@ $('wordForm').addEventListener('submit', (e) => {
 
 function renderList() {
   const q = ($('searchInput').value || '').trim().toLowerCase();
-  const list = words.filter(w => `${w.word} ${w.meaning}`.toLowerCase().includes(q));
+  const filter = $('filterSelect').value;
+  let list = words.filter(w => `${w.word} ${w.meaning}`.toLowerCase().includes(q));
+  if (filter === 'due') list = list.filter(due);
+  if (filter === 'mastered') list = list.filter(w => w.mastery >= 5);
+  list.sort((a, b) => (a.mastery || 0) - (b.mastery || 0) || a.word.localeCompare(b.word));
   $('wordList').innerHTML = list.length ? list.map(w => `
     <article class="word-item">
-      <div class="word-main"><strong>${escapeHtml(w.word)}</strong><span>${escapeHtml(w.meaning)} · ${w.mastery >= 4 ? '已掌握' : due(w) ? '待复习' : `下次：${w.nextReview}`}</span></div>
-      <div class="word-actions"><button class="small-btn speak-word" data-word="${escapeAttr(w.word)}">🔊</button><button class="small-btn delete-word" data-id="${escapeAttr(w.id)}">删除</button></div>
+      <div class="word-main"><strong>${escapeHtml(w.word)}</strong><span>${escapeHtml(w.meaning)} · ${w.mastery >= 5 ? '⭐ 已掌握' : due(w) ? '🔔 待复习' : `下次复习：${w.nextReview}`}</span></div>
+      <div class="word-actions"><button class="small-btn speak-word" data-word="${escapeAttr(w.word)}" type="button">🔊</button><button class="small-btn delete-word" data-id="${escapeAttr(w.id)}" type="button">删除</button></div>
     </article>`).join('') : '<div class="empty"><div class="empty-icon">🔎</div><p>没有找到相关单词。</p></div>';
   document.querySelectorAll('.delete-word').forEach(b => b.addEventListener('click', () => { words = words.filter(w => w.id !== b.dataset.id); save(); }));
   document.querySelectorAll('.speak-word').forEach(b => b.addEventListener('click', () => speak(b.dataset.word)));
 }
-function speak(word) {
-  if (!('speechSynthesis' in window)) return;
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(word); u.lang = 'en-US'; u.rate = .85; speechSynthesis.speak(u);
-}
-function escapeHtml(s) { return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function escapeAttr(s) { return escapeHtml(String(s)); }
+
 $('searchInput').addEventListener('input', renderList);
+$('filterSelect').addEventListener('change', renderList);
+
+function newQuiz() {
+  const pool = words.filter(w => w.meaning);
+  if (pool.length < 2) {
+    $('quizWord').textContent = '先添加至少 2 个单词';
+    $('quizOptions').innerHTML = '<button class="quiz-option" type="button" data-go="add">去添加单词 →</button>';
+    $('quizResult').classList.add('hidden');
+    return;
+  }
+  quizCurrent = pool[Math.floor(Math.random() * pool.length)];
+  const others = pool.filter(w => w.id !== quizCurrent.id).sort(() => Math.random() - .5).slice(0, 3);
+  const options = [quizCurrent, ...others].sort(() => Math.random() - .5);
+  $('quizWord').textContent = quizCurrent.word;
+  $('quizOptions').innerHTML = options.map(w => `<button class="quiz-option" type="button" data-id="${escapeAttr(w.id)}">${escapeHtml(w.meaning)}</button>`).join('');
+  $('quizResult').classList.add('hidden');
+  document.querySelectorAll('.quiz-option').forEach(btn => btn.addEventListener('click', () => answerQuiz(btn.dataset.id)));
+}
+
+function answerQuiz(id) {
+  if (!quizCurrent) return;
+  const correct = id === quizCurrent.id;
+  document.querySelectorAll('.quiz-option').forEach(btn => {
+    btn.disabled = true;
+    if (btn.dataset.id === quizCurrent.id) btn.classList.add('correct');
+    else if (btn.dataset.id === id) btn.classList.add('wrong');
+  });
+  $('quizResult').classList.remove('hidden');
+  $('quizResult').textContent = correct ? '✓ 答对了！记忆很稳，继续下一题。' : `✕ 正确答案：${quizCurrent.meaning}`;
+  if (correct) quizCurrent.quizCorrect = (quizCurrent.quizCorrect || 0) + 1;
+  setTimeout(() => newQuiz(), 850);
+}
+
+$('newQuizBtn').addEventListener('click', newQuiz);
 
 $('exportBtn').addEventListener('click', () => {
   const blob = new Blob([JSON.stringify(words, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `word-memory-${today()}.json`; a.click(); URL.revokeObjectURL(a.href);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `wordflow-${today()}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
+
 $('importInput').addEventListener('change', async (e) => {
-  const file = e.target.files[0]; if (!file) return;
+  const file = e.target.files[0];
+  if (!file) return;
   try {
     const imported = JSON.parse(await file.text());
     if (!Array.isArray(imported)) throw new Error('格式错误');
-    words = imported.filter(w => w && w.word && w.meaning).map(w => ({ id: w.id || String(Date.now() + Math.random()), word: String(w.word), meaning: String(w.meaning), example: String(w.example || ''), mastery: Number(w.mastery || 0), nextReview: w.nextReview || today(), createdAt: w.createdAt || Date.now() }));
-    save(); alert(`已导入 ${words.length} 个单词`);
-  } catch { alert('导入失败：请选择本软件导出的 JSON 词库文件。'); }
+    words = imported.filter(w => w && w.word && w.meaning).map(normalizeWord);
+    save();
+    alert(`已导入 ${words.length} 个单词`);
+  } catch {
+    alert('导入失败：请选择本软件导出的 JSON 词库文件。');
+  }
   e.target.value = '';
 });
 
@@ -126,5 +236,19 @@ $('themeBtn').addEventListener('click', () => {
   document.body.classList.toggle('dark');
   localStorage.setItem(THEME_KEY, document.body.classList.contains('dark') ? 'dark' : 'light');
 });
+
+window.addEventListener('keydown', (e) => {
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+  if (document.getElementById('study')?.classList.contains('active')) {
+    if (e.code === 'Space') { e.preventDefault(); if (!$('revealBtn').classList.contains('hidden')) $('revealBtn').click(); }
+    if (e.key === '1' && !$('rating').classList.contains('hidden')) review('again');
+    if (e.key === '2' && !$('rating').classList.contains('hidden')) review('hard');
+    if (e.key === '3' && !$('rating').classList.contains('hidden')) review('known');
+    if (e.key === '4' && !$('rating').classList.contains('hidden')) review('easy');
+  }
+});
+
 if (localStorage.getItem(THEME_KEY) === 'dark') document.body.classList.add('dark');
-updateStats(); renderList(); chooseCard();
+updateStats();
+renderList();
+chooseCard();
