@@ -217,17 +217,116 @@ $('exportBtn').addEventListener('click', () => {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 
+async function importDocx(file) {
+  if (!window.mammoth) throw new Error('DOCX 解析组件尚未加载，请稍后重试。');
+  const arrayBuffer = await file.arrayBuffer();
+  const result = await mammoth.convertToHtml({ arrayBuffer });
+  const doc = new DOMParser().parseFromString(result.value, 'text/html');
+  const imported = [];
+
+  // 优先读取 Word 表格：第一列=英文，第二列=中文，第三列=例句。
+  doc.querySelectorAll('table tr').forEach(row => {
+    const cells = [...row.querySelectorAll('th,td')].map(c => c.textContent.replace(/\s+/g, ' ').trim());
+    if (cells.length >= 2 && cells[0] && cells[1] && !isHeaderRow(cells)) {
+      imported.push({ word: cells[0], meaning: cells[1], example: cells[2] || '' });
+    }
+  });
+
+  // 如果没有表格，则按段落识别常见格式：word - 释义 / word：释义 / word\t释义。
+  if (!imported.length) {
+    const paragraphs = [...doc.querySelectorAll('p')].map(p => p.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    paragraphs.forEach(line => {
+      const item = parseWordLine(line);
+      if (item) imported.push(item);
+    });
+  }
+
+  return dedupeImported(imported);
+}
+
+function isHeaderRow(cells) {
+  const text = cells.slice(0, 3).join(' ').toLowerCase();
+  return /^(word|单词|英文|english)\b/.test(text) || /释义|中文|meaning/.test(text);
+}
+
+function parseWordLine(line) {
+  const cleaned = line.replace(/^\s*\d+[.)、]\s*/, '').trim();
+  const separators = ['\t', '｜', '|', '：', ':', ' — ', ' – ', ' - ', ' —', '–'];
+  for (const separator of separators) {
+    const index = cleaned.indexOf(separator);
+    if (index > 0) {
+      const word = cleaned.slice(0, index).trim();
+      const meaning = cleaned.slice(index + separator.length).trim();
+      if (isLikelyWord(word) && meaning) return { word, meaning, example: '' };
+    }
+  }
+  return null;
+}
+
+function isLikelyWord(text) {
+  return /^[A-Za-z][A-Za-z0-9' ._-]{0,79}$/.test(text.trim());
+}
+
+function dedupeImported(list) {
+  const seen = new Set();
+  return list.filter(item => {
+    const key = item.word.toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function mergeImported(imported) {
+  let added = 0;
+  let updated = 0;
+  imported.forEach(item => {
+    const existing = words.find(w => w.word.toLowerCase() === item.word.toLowerCase());
+    if (existing) {
+      existing.meaning = item.meaning;
+      if (item.example) existing.example = item.example;
+      existing.nextReview = today();
+      updated++;
+    } else {
+      words.push(normalizeWord({
+        id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()),
+        word: item.word,
+        meaning: item.meaning,
+        example: item.example,
+        mastery: 0,
+        nextReview: today(),
+        createdAt: Date.now(),
+        reviewHistory: []
+      }));
+      added++;
+    }
+  });
+  return { added, updated };
+}
+
 $('importInput').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   try {
-    const imported = JSON.parse(await file.text());
-    if (!Array.isArray(imported)) throw new Error('格式错误');
-    words = imported.filter(w => w && w.word && w.meaning).map(normalizeWord);
-    save();
-    alert(`已导入 ${words.length} 个单词`);
-  } catch {
-    alert('导入失败：请选择本软件导出的 JSON 词库文件。');
+    const isDocx = file.name.toLowerCase().endsWith('.docx');
+    if (isDocx) {
+      const imported = await importDocx(file);
+      if (!imported.length) {
+        throw new Error('没有识别到单词');
+      }
+      const result = mergeImported(imported);
+      save();
+      alert(`Word 导入成功！\n识别 ${imported.length} 个单词\n新增 ${result.added} 个，更新 ${result.updated} 个。`);
+    } else {
+      const imported = JSON.parse(await file.text());
+      if (!Array.isArray(imported)) throw new Error('格式错误');
+      words = imported.filter(w => w && w.word && w.meaning).map(normalizeWord);
+      save();
+      alert(`已导入 ${words.length} 个单词`);
+    }
+  } catch (error) {
+    console.error(error);
+    alert(`导入失败：${error.message || '请检查文件格式。'}\n\nWord 推荐格式：表格三列“单词 / 中文释义 / 例句”，或每行“单词 - 释义”。`);
   }
   e.target.value = '';
 });
