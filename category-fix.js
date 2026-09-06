@@ -26,7 +26,11 @@
       const byId = new Map(raw.map(w => [String(w.id), w]));
       words.forEach(w => {
         const r = byId.get(String(w.id));
-        if (r) { if (r.unit) w.unit = r.unit; if (r.source) w.source = r.source; if (r.wrongCount != null) w.wrongCount = r.wrongCount; }
+        if (r) {
+          if (r.unit) w.unit = r.unit;
+          if (r.source) w.source = r.source;
+          if (r.wrongCount != null) w.wrongCount = r.wrongCount;
+        }
       });
     }
   } catch (e) { console.warn('category rehydrate failed', e); }
@@ -110,10 +114,9 @@
     let added = 0, updated = 0;
     imported.forEach(item => {
       const key = `${item.source}|${item.unit}|${item.word.toLowerCase()}`;
-      let existing = data.find(w => `${w.source || ''}|${w.unit || ''}|${String(w.word || '').toLowerCase()}` === key);
-      if (!existing) {
-        existing = data.find(w => !w.source && !w.unit && String(w.word || '').toLowerCase() === item.word.toLowerCase());
-      }
+      // Only match an existing entry when source + Unit + word all match.
+      // Do not merge old untagged words into an arbitrary Unit.
+      const existing = data.find(w => `${w.source || ''}|${w.unit || ''}|${String(w.word || '').toLowerCase()}` === key);
       if (existing) {
         existing.meaning = item.meaning;
         if (item.example) existing.example = item.example;
@@ -177,6 +180,54 @@
     e.target.value = '';
   });
 
+  function startUnitStudy(unit) {
+    const data = readRaw();
+    const target = data.filter(w => w?.unit === unit && w?.word);
+    if (!target.length) {
+      alert(`没有找到 ${unit} 的词条，请先重新导入教材词库。`);
+      return;
+    }
+    // Save the current review dates for every word, then push all other Units out of the queue.
+    const backup = data.map(w => ({ id: w.id, nextReview: w.nextReview }));
+    localStorage.setItem('word-memory-study-backup', JSON.stringify(backup));
+    data.forEach(w => {
+      if (w.unit !== unit) w.nextReview = '2999-12-31T00:00:00.000Z';
+    });
+    localStorage.setItem(KEY, JSON.stringify(data));
+    localStorage.setItem('word-memory-study-unit', unit);
+    if (typeof words !== 'undefined' && Array.isArray(words)) {
+      words.length = 0;
+      data.forEach(w => words.push(w));
+    }
+    location.reload();
+  }
+
+  function exitUnitStudy() {
+    let backup = [];
+    try { backup = JSON.parse(localStorage.getItem('word-memory-study-backup') || '[]'); } catch {}
+    if (!backup.length) {
+      localStorage.removeItem('word-memory-study-unit');
+      return;
+    }
+    const data = readRaw();
+    backup.forEach(b => {
+      const w = data.find(x => String(x.id) === String(b.id));
+      if (w) w.nextReview = b.nextReview;
+    });
+    localStorage.setItem(KEY, JSON.stringify(data));
+    localStorage.removeItem('word-memory-study-backup');
+    localStorage.removeItem('word-memory-study-unit');
+    location.reload();
+  }
+
+  const bindUnitButtons = () => {
+    document.querySelectorAll('.unit-study').forEach(b => {
+      if (b.dataset.unitBound) return;
+      b.dataset.unitBound = '1';
+      b.addEventListener('click', () => startUnitStudy(b.dataset.unit));
+    });
+  };
+
   // Re-render progress with source breakdown, after the existing enhancement tab renders.
   const renderProgressFixed = () => {
     const box = document.getElementById('unitProgress');
@@ -192,6 +243,13 @@
       const rate = all.length ? Math.round(mastered / all.length * 100) : 0;
       return `<div class="unit-card"><div class="unit-title"><strong>${u}</strong><span>${rate}%</span></div><div class="progress-bar"><i style="width:${rate}%"></i></div><small>共 ${all.length}：读写 ${rw.length} · 听说 ${ls.length} · 已掌握 ${mastered}</small><button class="secondary unit-study" data-unit="${u}" type="button">只背 ${u}</button></div>`;
     }).join('');
+    bindUnitButtons();
   };
-  document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => { if (b.dataset.tab === 'progress') setTimeout(renderProgressFixed, 50); }));
+
+  document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.tab === 'progress') setTimeout(renderProgressFixed, 50);
+  }));
+
+  // If the progress panel is already visible, bind its buttons immediately.
+  bindUnitButtons();
 })();
