@@ -13,8 +13,7 @@
     const u=new SpeechSynthesisUtterance(text);u.lang='en-US';u.rate=.76;u.volume=1;
     const vs=speechSynthesis.getVoices();
     const v=vs.find(x=>/en-US/i.test(x.lang)&&/Google US English|Microsoft.*(Jenny|Aria|Guy|Andrew|Christopher)|Samantha|Alex/i.test(x.name))||vs.find(x=>/en-US/i.test(x.lang));
-    if(v)u.voice=v;
-    speechSynthesis.cancel();speechSynthesis.speak(u);
+    if(v)u.voice=v;speechSynthesis.cancel();speechSynthesis.speak(u);
   }
   function getUsAudio(text){
     const key=text.trim().toLowerCase();
@@ -26,20 +25,21 @@
     }).catch(()=>null);
     cache.set(key,p);return p;
   }
-  async function play(text, myToken, instant=true){
-    if(!text||myToken!==token)return;
-    // 先立即给声音，避免等待网络导致“点进去没声音”。
+  async function play(text){
+    if(!text)return;
+    stop();
+    const myToken=token;
     const cached=cache.get(text.trim().toLowerCase());
     if(cached && typeof cached.then==='function'){
       const url=await cached;if(myToken!==token)return;
-      if(url)return playUrl(url,myToken,text);
-      if(instant)immediateUsTts(text);
-      return;
+      if(url){playUrl(url,myToken,text);return;}
+      immediateUsTts(text);return;
     }
-    if(instant)immediateUsTts(text);
+    // 先播放 en-US 浏览器语音，避免等待网络；明确的美式真人音频加载后缓存给下一次播放。
+    immediateUsTts(text);
     const url=await getUsAudio(text);
-    if(myToken!==token)return;
-    if(url)playUrl(url,myToken,text);
+    if(myToken!==token||!url)return;
+    // 不在本次播放中切换声音，避免出现延迟/重复播放；URL 留在缓存供下一次点击。
   }
   function playUrl(url,myToken,text){
     if(myToken!==token)return;
@@ -56,13 +56,10 @@
     word=pool[Math.floor(Math.random()*pool.length)];
     const id=String(word.id);
     const options=shuffle([word,...shuffle(pool.filter(w=>String(w.id)!==id&&w.word.toLowerCase()!==word.word.toLowerCase())).slice(0,3)]);
-    if($('listeningPrompt'))$('listeningPrompt').textContent='正在播放美式发音…';
+    if($('listeningPrompt'))$('listeningPrompt').textContent='请点击「听发音」按钮后作答';
     $('listeningResult')?.classList.add('hidden');
     $('listeningOptions').innerHTML=options.map(w=>`<button class="quiz-option" data-listen-id="${esc(w.id)}" type="button">${esc(w.word)}</button>`).join('');
     document.querySelectorAll('#listeningOptions [data-listen-id]').forEach(b=>b.onclick=()=>answer(b.dataset.listenId,id));
-    const myToken=token;
-    // 用户刚点击“听音训练/换一题”，立即播放；网络真人美音加载后用于本题。
-    play(word.word,myToken,true).finally(()=>{if(myToken===token&&$('listeningPrompt'))$('listeningPrompt').textContent='听发音后，选择你听到的英文单词';});
   }
   function answer(id,correctId){
     if(!word||String(word.id)!==String(correctId))return;
@@ -76,8 +73,8 @@
     const tab=document.querySelector('.tab[data-tab="listening"]');
     if(tab)tab.addEventListener('click',e=>{e.stopImmediatePropagation();newQuestion()},{capture:true});
     $('newListeningBtn')?.addEventListener('click',e=>{e.stopImmediatePropagation();newQuestion()},{capture:true});
-    $('replayListeningBtn')?.addEventListener('click',e=>{e.stopImmediatePropagation();if(word){stop();const t=token;play(word.word,t,true)}},{capture:true});
+    $('replayListeningBtn')?.addEventListener('click',e=>{e.stopImmediatePropagation();if(word)play(word.word)},{capture:true});
+    if($('replayListeningBtn'))$('replayListeningBtn').textContent='🔊 听发音';
   }
-  // enhancements.js 已经加载完毕，重新绑定为本修复版。
   bind();
 })();
