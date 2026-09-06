@@ -224,7 +224,6 @@ async function importDocx(file) {
   const doc = new DOMParser().parseFromString(result.value, 'text/html');
   const imported = [];
 
-  // 优先读取 Word 表格：第一列=英文，第二列=中文，第三列=例句。
   doc.querySelectorAll('table tr').forEach(row => {
     const cells = [...row.querySelectorAll('th,td')].map(c => c.textContent.replace(/\s+/g, ' ').trim());
     if (cells.length >= 2 && cells[0] && cells[1] && !isHeaderRow(cells)) {
@@ -232,13 +231,31 @@ async function importDocx(file) {
     }
   });
 
-  // 如果没有表格，则按段落识别常见格式：word - 释义 / word：释义 / word\t释义。
   if (!imported.length) {
-    const paragraphs = [...doc.querySelectorAll('p')].map(p => p.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean);
-    paragraphs.forEach(line => {
-      const item = parseWordLine(line);
-      if (item) imported.push(item);
-    });
+    const paragraphs = [...doc.querySelectorAll('p')]
+      .map(p => p.textContent.replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+
+    for (let i = 0; i < paragraphs.length; i++) {
+      const word = parseVocabularyHead(paragraphs[i]);
+      if (!word || i + 1 >= paragraphs.length) continue;
+
+      const meaningInfo = parseMeaningLine(paragraphs[i + 1]);
+      if (!meaningInfo || !meaningInfo.meaning) continue;
+
+      let example = meaningInfo.example || '';
+      for (let j = i + 2; j < Math.min(i + 7, paragraphs.length); j++) {
+        const exampleText = parseExampleLine(paragraphs[j]);
+        if (exampleText !== null) {
+          example = exampleText;
+          break;
+        }
+        if (parseVocabularyHead(paragraphs[j]) && parseMeaningLine(paragraphs[j + 1])) break;
+        if (/^译文\s*/.test(paragraphs[j])) break;
+      }
+
+      imported.push({ word, meaning: meaningInfo.meaning, example });
+    }
   }
 
   return dedupeImported(imported);
@@ -249,18 +266,42 @@ function isHeaderRow(cells) {
   return /^(word|单词|英文|english)\b/.test(text) || /释义|中文|meaning/.test(text);
 }
 
-function parseWordLine(line) {
-  const cleaned = line.replace(/^\s*\d+[.)、]\s*/, '').trim();
-  const separators = ['\t', '｜', '|', '：', ':', ' — ', ' – ', ' - ', ' —', '–'];
-  for (const separator of separators) {
-    const index = cleaned.indexOf(separator);
-    if (index > 0) {
-      const word = cleaned.slice(0, index).trim();
-      const meaning = cleaned.slice(index + separator.length).trim();
-      if (isLikelyWord(word) && meaning) return { word, meaning, example: '' };
-    }
+function parseVocabularyHead(line) {
+  const cleaned = line
+    .replace(/^\s*\d+[.)、]\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned || /^(unit\s+\d+|video scripts?|reading\s*\d*|vocabulary preview|vocabulary development|academic words|glossary|discussion point|audio scripts?|speaking model|speaking skill|critical thinking)$/i.test(cleaned)) {
+    return null;
   }
+
+  const ipa = cleaned.match(/^(.+?)\s*\/[^/]{1,100}\/\s*$/);
+  if (ipa && isLikelyWord(ipa[1])) return ipa[1].trim();
+
+  if (isLikelyWord(cleaned) && cleaned.split(/\s+/).length <= 8) return cleaned;
   return null;
+}
+
+function parseMeaningLine(line) {
+  const cleaned = line.replace(/\s+/g, ' ').trim();
+  if (!/^释义\s*/.test(cleaned)) return null;
+
+  let body = cleaned.replace(/^释义\s*/, '').trim();
+  let example = '';
+  const exampleIndex = body.search(/例\s*句\s*/);
+  if (exampleIndex >= 0) {
+    const marker = body.match(/例\s*句\s*/);
+    example = body.slice(exampleIndex + marker[0].length).trim();
+    body = body.slice(0, exampleIndex).trim();
+  }
+  return { meaning: body, example };
+}
+
+function parseExampleLine(line) {
+  const cleaned = line.replace(/\s+/g, ' ').trim();
+  const match = cleaned.match(/^例\s*句\s*(.*)$/);
+  return match ? match[1].trim() : null;
 }
 
 function isLikelyWord(text) {
@@ -311,12 +352,10 @@ $('importInput').addEventListener('change', async (e) => {
     const isDocx = file.name.toLowerCase().endsWith('.docx');
     if (isDocx) {
       const imported = await importDocx(file);
-      if (!imported.length) {
-        throw new Error('没有识别到单词');
-      }
+      if (!imported.length) throw new Error('没有识别到符合教材格式的词条');
       const result = mergeImported(imported);
       save();
-      alert(`Word 导入成功！\n识别 ${imported.length} 个单词\n新增 ${result.added} 个，更新 ${result.updated} 个。`);
+      alert(`Word 导入成功！\n识别 ${imported.length} 个词条\n新增 ${result.added} 个，更新 ${result.updated} 个。`);
     } else {
       const imported = JSON.parse(await file.text());
       if (!Array.isArray(imported)) throw new Error('格式错误');
@@ -326,7 +365,7 @@ $('importInput').addEventListener('change', async (e) => {
     }
   } catch (error) {
     console.error(error);
-    alert(`导入失败：${error.message || '请检查文件格式。'}\n\nWord 推荐格式：表格三列“单词 / 中文释义 / 例句”，或每行“单词 - 释义”。`);
+    alert(`导入失败：${error.message || '请检查文件格式。'}\n\n现在支持直接识别教材原始格式：\n单词 /音标/ → 释义 → 例句 → 译文\n以及没有音标的固定短语格式。`);
   }
   e.target.value = '';
 });
@@ -346,6 +385,14 @@ window.addEventListener('keydown', (e) => {
     if (e.key === '4' && !$('rating').classList.contains('hidden')) review('easy');
   }
 });
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[c]);
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value);
+}
 
 if (localStorage.getItem(THEME_KEY) === 'dark') document.body.classList.add('dark');
 updateStats();
