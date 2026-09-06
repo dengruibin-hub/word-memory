@@ -97,12 +97,13 @@
       <label>例句（可选）<textarea id="exampleInput" maxlength="300" placeholder="例如：I found this café by pure serendipity."></textarea></label>
       <button class="primary" type="submit">保存并开始复习</button>
     </form>
-    <div class="data-actions"><button id="exportBtn" class="secondary" type="button">↓ 导出词库</button><label class="secondary file-btn">↑ 导入词库<input id="importInput" type="file" accept="application/json"></label></div>
-    <div class="tip-box">💡 <b>小技巧：</b>每天新增 5–15 个词，再让系统安排复习，比一次塞进几百个词更容易长期坚持。</div>
+    <div class="data-actions"><button id="exportBtn" class="secondary" type="button">↓ 导出词库</button><label class="secondary file-btn">↑ 导入词库<input id="importInput" type="file" accept=".json,.docx,application/json,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></label></div>
+    <div class="tip-box">💡 <b>导入 Word 文档：</b>支持 .docx。推荐用“单词 | 中文释义 | 例句”三列做成表格，也支持每行使用“单词 - 释义”或“单词：释义”的格式。</div>
   </section>
 
   <footer>WordFlow · 本地存储 · 无需账号 · 手机电脑均可使用</footer>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/mammoth@1.9.0/mammoth.browser.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
