@@ -6,20 +6,45 @@
   const esc=v=>String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const shuffle=a=>a.sort(()=>Math.random()-.5);
   let listenWord=null,spellWord=null;
+  const audioCache=new Map();
 
   const tabs=document.querySelector('.tabs'),quizTab=tabs?.querySelector('[data-tab="quiz"]');
   if(tabs&&quizTab&&!tabs.querySelector('[data-tab="listening"]'))quizTab.insertAdjacentHTML('afterend','<button class="tab" data-tab="listening">听音训练</button><button class="tab" data-tab="spelling">拼写训练</button><button class="tab" data-tab="wrong">错词本</button><button class="tab" data-tab="progress">学习进度</button>');
   const footer=document.querySelector('footer');
   if(footer&&!$('listening'))footer.insertAdjacentHTML('beforebegin',`
-<section id="listening" class="panel"><div class="quiz-card"><div class="quiz-head"><div><span class="card-label">LISTENING</span><h2>听音选词</h2><p>只听美式发音，再选择正确英文。</p></div><button id="newListeningBtn" class="secondary" type="button">换一题</button></div><button id="replayListeningBtn" class="primary" type="button">🔊 再听一次</button><p id="listeningPrompt" class="quiz-result">准备开始</p><div id="listeningOptions" class="quiz-options"></div><div id="listeningResult" class="quiz-result hidden"></div></div></section>
-<section id="spelling" class="panel"><div class="quiz-card"><div class="quiz-head"><div><span class="card-label">SPELLING</span><h2>听音拼写</h2><p>听美式发音，自己输入英文。</p></div><button id="newSpellingBtn" class="secondary" type="button">换一题</button></div><button id="replaySpellingBtn" class="primary" type="button">🔊 再听一次</button><p id="spellingPrompt" class="quiz-result">准备开始</p><input id="spellingInput" class="search" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="输入你听到的英文单词…"><button id="checkSpellingBtn" class="reveal" type="button">检查拼写</button><div id="spellingResult" class="quiz-result hidden"></div></div></section>
+<section id="listening" class="panel"><div class="quiz-card"><div class="quiz-head"><div><span class="card-label">LISTENING</span><h2>听音选词</h2><p>优先使用美式真人词典音频。</p></div><button id="newListeningBtn" class="secondary" type="button">换一题</button></div><button id="replayListeningBtn" class="primary" type="button">🔊 再听一次</button><p id="listeningPrompt" class="quiz-result">准备开始</p><div id="listeningOptions" class="quiz-options"></div><div id="listeningResult" class="quiz-result hidden"></div></div></section>
+<section id="spelling" class="panel"><div class="quiz-card"><div class="quiz-head"><div><span class="card-label">SPELLING</span><h2>听音拼写</h2><p>优先使用美式真人词典音频。</p></div><button id="newSpellingBtn" class="secondary" type="button">换一题</button></div><button id="replaySpellingBtn" class="primary" type="button">🔊 再听一次</button><p id="spellingPrompt" class="quiz-result">准备开始</p><input id="spellingInput" class="search" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="输入你听到的英文单词…"><button id="checkSpellingBtn" class="reveal" type="button">检查拼写</button><div id="spellingResult" class="quiz-result hidden"></div></div></section>
 <section id="wrong" class="panel"><div class="quiz-card"><div class="quiz-head"><div><span class="card-label">WRONG WORDS</span><h2>错词本</h2><p>优先复习掌握度较低的单词。</p></div><button id="wrongStudyBtn" class="primary" type="button">开始复习</button></div><div id="wrongList" class="word-list"></div></div></section>
 <section id="progress" class="panel"><div class="quiz-card"><div class="quiz-head"><div><span class="card-label">PROGRESS</span><h2>Unit 学习进度</h2><p>掌握度达到 5 级的单词计入已掌握。</p></div></div><div id="unitProgress" class="progress-grid"></div></div></section>`);
 
   function show(name){document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id===name));if(name==='listening')newListening();if(name==='spelling')newSpelling();if(name==='wrong')renderWrong();if(name==='progress')renderProgress();if(name==='words')enhanceLibrary()}
   tabs?.querySelectorAll('.tab[data-tab="listening"],.tab[data-tab="spelling"],.tab[data-tab="wrong"],.tab[data-tab="progress"]').forEach(b=>b.addEventListener('click',()=>show(b.dataset.tab)));
 
-  function speak(word){if(!word||!('speechSynthesis'in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(word);u.lang='en-US';u.rate=.76;u.volume=1;const vs=speechSynthesis.getVoices();const v=vs.find(x=>/en-US/i.test(x.lang)&&/Google US English|Microsoft.*(Jenny|Aria|Guy|Andrew|Christopher)|Samantha|Alex/i.test(x.name))||vs.find(x=>/en-US/i.test(x.lang));if(v)u.voice=v;speechSynthesis.speak(u)}
+  async function getUsAudio(word){
+    const key=String(word||'').trim().toLowerCase();
+    if(!key)return null;
+    if(audioCache.has(key))return audioCache.get(key);
+    const promise=fetch('https://api.dictionaryapi.dev/api/v2/entries/en/'+encodeURIComponent(key)).then(r=>r.ok?r.json():null).then(entries=>{
+      if(!Array.isArray(entries))return null;
+      const audios=[];
+      entries.forEach(e=>(e.phonetics||[]).forEach(p=>{if(p.audio)audios.push(p.audio)}));
+      return audios.find(u=>/-(us|en-us)[.-]/i.test(u)||//us//i.test(u))||audios[0]||null;
+    }).catch(()=>null);
+    audioCache.set(key,promise);
+    return promise;
+  }
+  async function speak(word){
+    if(!word)return;
+    speechSynthesis?.cancel();
+    const url=await getUsAudio(word);
+    if(url){
+      const a=new Audio(url);a.preload='auto';a.play().catch(()=>fallbackSpeak(word));
+      return;
+    }
+    fallbackSpeak(word);
+  }
+  function fallbackSpeak(word){if(!('speechSynthesis'in window))return;const u=new SpeechSynthesisUtterance(word);u.lang='en-US';u.rate=.76;u.volume=1;const vs=speechSynthesis.getVoices();const v=vs.find(x=>/en-US/i.test(x.lang)&&/Google US English|Microsoft.*(Jenny|Aria|Guy|Andrew|Christopher)|Samantha|Alex/i.test(x.name))||vs.find(x=>/en-US/i.test(x.lang));if(v)u.voice=v;speechSynthesis.speak(u)}
+
   function newListening(){const pool=load().filter(w=>w.word&&w.meaning);if(!pool.length)return;listenWord=pool[Math.floor(Math.random()*pool.length)];$('listeningPrompt').textContent='听发音后，选择你听到的英文单词';$('listeningResult').classList.add('hidden');$('listeningOptions').innerHTML=shuffle([listenWord,...pool.filter(w=>w.id!==listenWord.id).slice(0,6)]).slice(0,4).map(w=>`<button class="quiz-option" data-id="${esc(w.id)}" type="button">${esc(w.word)}</button>`).join('');document.querySelectorAll('#listeningOptions .quiz-option').forEach(b=>b.onclick=()=>answerListening(b.dataset.id));setTimeout(()=>speak(listenWord.word),150)}
   function answerListening(id){const ok=id===listenWord?.id;document.querySelectorAll('#listeningOptions .quiz-option').forEach(b=>{b.disabled=true;if(b.dataset.id===listenWord.id)b.classList.add('correct');else if(b.dataset.id===id)b.classList.add('wrong')});$('listeningResult').classList.remove('hidden');$('listeningResult').textContent=ok?'✓ 听对了！':'✕ 正确答案：'+listenWord.word;setTimeout(newListening,900)}
   function newSpelling(){const pool=load().filter(w=>w.word&&w.meaning);if(!pool.length)return;spellWord=pool[Math.floor(Math.random()*pool.length)];$('spellingPrompt').textContent='听发音后，输入你听到的英文单词';$('spellingInput').value='';$('spellingResult').classList.add('hidden');setTimeout(()=>speak(spellWord.word),150);$('spellingInput').focus()}
