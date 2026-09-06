@@ -21,10 +21,15 @@
     const data = wrongWords();
     if (!data.length) {
       box.innerHTML = '<div class="empty"><p>太棒了！目前没有明显薄弱词。</p></div>';
+      updateButton();
+      updateClearButton();
       return;
     }
     box.innerHTML = `
-      ${selecting ? `<div class="wrong-toolbar"><label><input id="wrongSelectAll" type="checkbox"> 全选</label><span>已选 ${selected.size} 个</span><button id="wrongCancelSelect" class="secondary" type="button">取消选择</button></div>` : ''}
+      <div class="wrong-toolbar">
+        ${selecting ? `<label><input id="wrongSelectAll" type="checkbox"> 全选</label><span>已选 ${selected.size} 个</span><button id="wrongCancelSelect" class="secondary" type="button">取消选择</button>` : ''}
+        <button id="wrongClearAll" class="danger" type="button">全部删除</button>
+      </div>
       ${data.map(w => `
         <article class="word-item wrong-item">
           ${selecting ? `<label class="wrong-check"><input class="wrong-select" type="checkbox" data-id="${esc(w.id)}" ${selected.has(String(w.id)) ? 'checked' : ''}></label>` : ''}
@@ -42,6 +47,18 @@
       renderWrongChooser();
     });
     $('wrongCancelSelect')?.addEventListener('click', () => { selecting = false; selected.clear(); renderWrongChooser(); updateButton(); });
+    $('wrongClearAll')?.addEventListener('click', () => {
+      const count = wrongWords().length;
+      if (!count) return;
+      if (!confirm(`确定要全部删除错题本中的 ${count} 个单词吗？\n\n这些单词也会从词库中删除，此操作不可恢复。`)) return;
+      const wrongIds = new Set(wrongWords().map(w => String(w.id)));
+      save(load().filter(w => !wrongIds.has(String(w.id))));
+      selected.clear();
+      selecting = false;
+      renderWrongChooser();
+      updateButton();
+      if (typeof window.updateStats === 'function') window.updateStats();
+    });
     box.querySelectorAll('.wrong-delete').forEach(btn => btn.addEventListener('click', () => {
       const id = String(btn.dataset.id);
       const dataNow = load();
@@ -53,6 +70,11 @@
       renderWrongChooser();
       if (typeof window.updateStats === 'function') window.updateStats();
     }));
+  }
+
+  function updateClearButton() {
+    const btn = $('wrongClearAll');
+    if (btn) btn.disabled = wrongWords().length === 0;
   }
 
   function updateButton() {
@@ -76,7 +98,6 @@
     const target = data.filter(w => selectedSet.has(String(w.id)) && w.word);
     if (!target.length) return;
 
-    // Back up the complete schedule. Only selected words remain in the review queue.
     const backup = data.map(w => ({ id: w.id, nextReview: w.nextReview }));
     localStorage.setItem(BACKUP_KEY, JSON.stringify(backup));
     localStorage.setItem(MODE_KEY + '-ids', JSON.stringify(ids));
@@ -98,7 +119,6 @@
     }
     const selectedSet = new Set(selectedIds);
     const data = load();
-    // Restore non-selected words only. Selected words keep their new mastery/review dates.
     backup.forEach(b => {
       if (selectedSet.has(String(b.id))) return;
       const w = data.find(x => String(x.id) === String(b.id));
